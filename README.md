@@ -1,15 +1,28 @@
-<img src="https://raw.github.com/hapijs/hapi/master/images/hapi.png" />
+<img src="https://raw.githubusercontent.com/hapijs/assets/master/images/hapi.png" width="400px" />
 
-### Web and services application framework
+# @hapi/hapi
 
-Lead Maintainer: [Eran Hammer](https://github.com/hueniverse)
+#### The Simple, Secure Framework Developers Trust
 
-**hapi** is a simple to use configuration-centric framework with built-in support for input validation, caching,
-authentication, and other essential facilities for building web and services applications. **hapi** enables
-developers to focus on writing reusable application in a highly modular and prescriptive approach. 
+Build powerful, scalable applications, with minimal overhead and full out-of-the-box functionality - your code, your way.
 
-Development version: **8.6.x** ([release notes](https://github.com/hapijs/hapi/issues?labels=release+notes&page=1&state=closed)) 
-[![Build Status](https://secure.travis-ci.org/hapijs/hapi.svg)](http://travis-ci.org/hapijs/hapi)
+### Visit the [hapi.dev](https://hapi.dev) Developer Portal for tutorials, documentation, and support
 
-For the latest updates and release information visit [hapijs.com](http://hapijs.com) and follow [@hapijs](https://twitter.com/hapijs) on twitter. If you have questions, please open an issue in the
-[discussion forum](https://github.com/hapijs/discuss).
+## Useful resources
+
+- [Documentation and API](https://hapi.dev/)
+- [Version status](https://hapi.dev/resources/status/#hapi) (builds, dependencies, node versions, licenses, eol)
+- [Changelog](https://hapi.dev/resources/changelog/)
+- [Project policies](https://hapi.dev/policies/)
+- [Support](https://hapi.dev/support/)
+
+## Technical Steering Committee (TSC) Members
+
+ - Devin Ivy ([@devinivy](https://github.com/devinivy))
+ - Jonas Pauthier ([@nargonath](https://github.com/nargonath))
+ - Lloyd Benson ([@lloydbenson](https://github.com/lloydbenson))
+ - Nathan LaFreniere ([@nlf](https://github.com/nlf))
+ - Wyatt Lyon Preul ([@geek](https://github.com/geek))
+ - Colin Ihrig ([@cjihrig](https://github.com/cjihrig))
+ - Nicolas Morel ([@marsup](https://github.com/marsup))
+ - Jonathan Samines ([@jonathansamines](https://github.com/jonathansamines))

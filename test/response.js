@@ -1,35 +1,35 @@
-// Load modules
+'use strict';
 
-var Stream = require('stream');
-var Bluebird = require('bluebird');
-var Boom = require('boom');
-var Code = require('code');
-var Handlebars = require('handlebars');
-var Hapi = require('..');
-var Hoek = require('hoek');
-var Lab = require('lab');
+const Events = require('events');
+const Http = require('http');
+const Path = require('path');
+const Stream = require('stream');
 
+const Code = require('@hapi/code');
+const Handlebars = require('handlebars');
+const LegacyReadableStream = require('legacy-readable-stream');
+const Hapi = require('..');
+const Inert = require('@hapi/inert');
+const Lab = require('@hapi/lab');
+const Vision = require('@hapi/vision');
 
-// Declare internals
-
-var internals = {};
-
-
-// Test shortcuts
-
-var lab = exports.lab = Lab.script();
-var describe = lab.describe;
-var it = lab.it;
-var expect = Code.expect;
+const Response = require('../lib/response');
 
 
-describe('Response', function () {
+const internals = {};
 
-    it('returns a reply', function (done) {
 
-        var handler = function (request, reply) {
+const { describe, it } = exports.lab = Lab.script();
+const expect = Code.expect;
 
-            return reply('text')
+
+describe('Response', () => {
+
+    it('returns a response', async () => {
+
+        const handler = (request, h) => {
+
+            return h.response('text')
                 .type('text/plain')
                 .charset('ISO-8859-1')
                 .ttl(1000)
@@ -42,996 +42,1547 @@ describe('Response', function () {
                 .header('combo', 'o')
                 .header('combo', 'k', { append: true, separator: '-' })
                 .header('combo', 'bad', { override: false })
-                .code(200);
+                .code(200)
+                .message('Super');
         };
 
-        var server = new Hapi.Server();
-        server.connection({ routes: { cors: true } });
-        server.route({ method: 'GET', path: '/', config: { handler: handler, cache: { expiresIn: 9999 } } });
+        const server = Hapi.server({ compression: { minBytes: 1 } });
+        server.route({ method: 'GET', path: '/', options: { handler, cache: { expiresIn: 9999 } } });
         server.state('sid', { encoding: 'base64' });
         server.state('always', { autoValue: 'present' });
-        server.ext('onPostHandler', function (request, reply) {
 
-            reply.state('test', '123');
-            reply.unstate('empty');
-            return reply.continue();
-        });
+        const postHandler = (request, h) => {
 
-        server.inject('/', function (res) {
+            h.state('test', '123');
+            h.unstate('empty', { path: '/path' });
+            return h.continue;
+        };
 
-            expect(res.statusCode).to.equal(200);
-            expect(res.result).to.exist();
-            expect(res.result).to.equal('text');
-            expect(res.headers['cache-control']).to.equal('max-age=1, must-revalidate, private');
-            expect(res.headers['content-type']).to.equal('text/plain; something=something, charset=ISO-8859-1');
-            expect(res.headers['access-control-allow-origin']).to.equal('*');
-            expect(res.headers['access-control-allow-credentials']).to.not.exist();
-            expect(res.headers['access-control-allow-methods']).to.equal('GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS');
-            expect(res.headers['set-cookie']).to.deep.equal(['abc=123', 'sid=YWJjZGVmZzEyMzQ1Ng==', 'other=something; Secure', 'x=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT', 'test=123', 'empty=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT', 'always=present']);
-            expect(res.headers.vary).to.equal('x-control,origin');
-            expect(res.headers.combo).to.equal('o-k');
-            done();
-        });
+        server.ext('onPostHandler', postHandler);
+
+        const res = await server.inject('/');
+        expect(res.statusCode).to.equal(200);
+        expect(res.result).to.exist();
+        expect(res.result).to.equal('text');
+        expect(res.statusMessage).to.equal('Super');
+        expect(res.headers['cache-control']).to.equal('max-age=1, must-revalidate, private');
+        expect(res.headers['content-type']).to.equal('text/plain; something=something; charset=ISO-8859-1');
+        expect(res.headers['set-cookie']).to.equal(['abc=123', 'sid=YWJjZGVmZzEyMzQ1Ng==; Secure; HttpOnly; SameSite=Strict', 'other=something; Secure; HttpOnly; SameSite=Strict', 'x=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=Strict', 'test=123; Secure; HttpOnly; SameSite=Strict', 'empty=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=Strict; Path=/path', 'always=present; Secure; HttpOnly; SameSite=Strict']);
+        expect(res.headers.vary).to.equal('x-control,accept-encoding');
+        expect(res.headers.combo).to.equal('o-k');
     });
 
-    describe('header()', function () {
+    it('sets content-type charset (trailing semi column)', async () => {
 
-        it('appends to set-cookie header', function (done) {
+        const handler = (request, h) => {
 
-            var handler = function (request, reply) {
+            return h.response('text').header('Content-Type', 'text/plain; something=something;');
+        };
 
-                return reply('ok').header('set-cookie', 'A').header('set-cookie', 'B', { append: true });
-            };
+        const server = Hapi.server();
+        server.route({ method: 'GET', path: '/', handler });
 
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(200);
-                expect(res.headers['set-cookie']).to.deep.equal(['A', 'B']);
-                done();
-            });
-        });
+        const res = await server.inject('/');
+        expect(res.statusCode).to.equal(200);
+        expect(res.headers['content-type']).to.equal('text/plain; something=something; charset=utf-8');
     });
 
-    describe('created()', function () {
+    describe('_setSource()', () => {
 
-        it('returns a stream reply (created)', function (done) {
+        it('returns an empty string response', async () => {
 
-            var handler = function (request, reply) {
-
-                return reply({ a: 1 }).created('/special');
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'POST', path: '/', handler: handler });
-
-            server.inject({ method: 'POST', url: '/' }, function (res) {
-
-                expect(res.result).to.deep.equal({ a: 1 });
-                expect(res.statusCode).to.equal(201);
-                expect(res.headers.location).to.equal('/special');
-                expect(res.headers['cache-control']).to.equal('no-cache');
-                done();
+            const server = Hapi.server();
+            server.route({
+                method: 'GET',
+                path: '/',
+                handler: () => ''
             });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(204);
+            expect(res.headers['content-length']).to.not.exist();
+            expect(res.headers['content-type']).to.equal('text/html; charset=utf-8');
+            expect(res.result).to.equal(null);
+            expect(res.payload).to.equal('');
         });
 
-        it('returns error on created with GET', function (done) {
+        it('returns a null response', async () => {
 
-            var handler = function (request, reply) {
-
-                return reply().created('/something');
-            };
-
-            var server = new Hapi.Server({ debug: false });
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
-
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(500);
-                done();
+            const server = Hapi.server();
+            server.route({
+                method: 'GET',
+                path: '/',
+                handler: () => null
             });
-        });
-    });
 
-    describe('state()', function () {
-
-        it('returns an error on bad cookie', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply('text').state(';sid', 'abcdefg123456');
-            };
-
-            var server = new Hapi.Server({ debug: false });
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
-
-            server.inject('/', function (res) {
-
-                expect(res.result).to.exist();
-                expect(res.statusCode).to.equal(500);
-                expect(res.result.message).to.equal('An internal server error occurred');
-                expect(res.headers['set-cookie']).to.not.exist();
-                done();
-            });
-        });
-    });
-
-    describe('unstate()', function () {
-
-        it('allows options', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply().unstate('session', { path: '/unset', isSecure: true });
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-
-            server.inject('/', function (unset) {
-
-                expect(unset.statusCode).to.equal(200);
-                expect(unset.headers['set-cookie']).to.deep.equal(['session=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; Path=/unset']);
-                done();
-            });
-        });
-    });
-
-    describe('vary()', function () {
-
-        it('sets Vary header with single value', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply('ok').vary('x');
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-
-            server.inject('/', function (res) {
-
-                expect(res.result).to.equal('ok');
-                expect(res.statusCode).to.equal(200);
-                expect(res.headers.vary).to.equal('x');
-                done();
-            });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(204);
+            expect(res.headers['content-length']).to.not.exist();
+            expect(res.headers['content-type']).to.not.exist();
+            expect(res.result).to.equal(null);
+            expect(res.payload).to.equal('');
         });
 
-        it('sets Vary header with multiple values', function (done) {
+        it('returns a stream', async () => {
 
-            var handler = function (request, reply) {
+            const handler = (request) => {
 
-                return reply('ok').vary('x').vary('y');
-            };
+                const stream = new Stream.Readable({
+                    read() {
 
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-
-            server.inject('/', function (res) {
-
-                expect(res.result).to.equal('ok');
-                expect(res.statusCode).to.equal(200);
-                expect(res.headers.vary).to.equal('x,y');
-                done();
-            });
-        });
-
-        it('sets Vary header with *', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply('ok').vary('*');
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-
-            server.inject('/', function (res) {
-
-                expect(res.result).to.equal('ok');
-                expect(res.statusCode).to.equal(200);
-                expect(res.headers.vary).to.equal('*');
-                done();
-            });
-        });
-
-        it('leaves Vary header with * on additional values', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply('ok').vary('*').vary('x');
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-
-            server.inject('/', function (res) {
-
-                expect(res.result).to.equal('ok');
-                expect(res.statusCode).to.equal(200);
-                expect(res.headers.vary).to.equal('*');
-                done();
-            });
-        });
-
-        it('drops other Vary header values when set to *', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply('ok').vary('x').vary('*');
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-
-            server.inject('/', function (res) {
-
-                expect(res.result).to.equal('ok');
-                expect(res.statusCode).to.equal(200);
-                expect(res.headers.vary).to.equal('*');
-                done();
-            });
-        });
-    });
-
-    describe('etag()', function () {
-
-        it('sets etag', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply('ok').etag('abc');
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(200);
-                expect(res.headers.etag).to.equal('"abc"');
-                done();
-            });
-        });
-
-        it('sets weak etag', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply('ok').etag('abc', { weak: true });
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(200);
-                expect(res.headers.etag).to.equal('W/"abc"');
-                done();
-            });
-        });
-
-        it('ignores varyEtag when etag header is removed', function (done) {
-
-            var handler = function (request, reply) {
-
-                var response = reply('ok').etag('abc').vary('x');
-                delete response.headers.etag;
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(200);
-                expect(res.headers.etag).to.not.exist();
-                done();
-            });
-        });
-
-        it('leaves etag header when varyEtag is false', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply('ok').etag('abc', { vary: false }).vary('x');
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(200);
-                expect(res.headers.etag).to.equal('"abc"');
-
-                server.inject({ url: '/', headers: { 'if-none-match': '"abc-gzip"', 'accept-encoding': 'gzip' } }, function (res) {
-
-                    expect(res.statusCode).to.equal(200);
-                    expect(res.headers.etag).to.equal('"abc"');
-                    done();
+                        this.push('x');
+                        this.push(null);
+                    }
                 });
-            });
+
+                return stream;
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.result).to.equal('x');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers['content-type']).to.equal('application/octet-stream');
         });
     });
 
-    describe('passThrough()', function () {
+    describe('code()', () => {
 
-        it('passes stream headers and code through', function (done) {
+        it('sets manual code regardless of emptyStatusCode override', async () => {
 
-            var TestStream = function () {
+            const server = Hapi.server({ routes: { response: { emptyStatusCode: 200 } } });
+            server.route({ method: 'GET', path: '/', handler: (request, h) => h.response().code(204) });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(204);
+        });
+    });
 
-                Stream.Readable.call(this);
-                this.statusCode = 299;
-                this.headers = { xcustom: 'some value' };
+    describe('header()', () => {
+
+        it('appends to set-cookie header', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('ok').header('set-cookie', 'A').header('set-cookie', 'B', { append: true });
             };
 
-            Hoek.inherits(TestStream, Stream.Readable);
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers['set-cookie']).to.equal(['A', 'B']);
+        });
 
-            TestStream.prototype._read = function (size) {
+        it('sets null header', async () => {
 
-                if (this.isDone) {
-                    return;
+            const handler = (request, h) => {
+
+                return h.response('ok').header('set-cookie', null);
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers['set-cookie']).to.not.exist();
+        });
+
+        it('throws error on non-ascii value', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('ok').header('set-cookie', decodeURIComponent('%E0%B4%8Aset-cookie:%20foo=bar'));
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(500);
+        });
+
+        it('throws error on non-ascii value (header name)', async () => {
+
+            const handler = (request, h) => {
+
+                const badName = decodeURIComponent('%E0%B4%8Aset-cookie:%20foo=bar');
+                return h.response('ok').header(badName, 'value');
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(500);
+        });
+
+        it('throws error on non-ascii value (buffer)', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('ok').header('set-cookie', Buffer.from(decodeURIComponent('%E0%B4%8Aset-cookie:%20foo=bar')));
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(500);
+        });
+    });
+
+    describe('created()', () => {
+
+        it('returns a response (created)', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response({ a: 1 }).created('/special');
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'POST', path: '/', handler });
+
+            const res = await server.inject({ method: 'POST', url: '/' });
+            expect(res.result).to.equal({ a: 1 });
+            expect(res.statusCode).to.equal(201);
+            expect(res.headers.location).to.equal('/special');
+            expect(res.headers['cache-control']).to.equal('no-cache');
+        });
+
+        it('returns error on created with GET', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response().created('/something');
+            };
+
+            const server = Hapi.server({ debug: false });
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(500);
+        });
+
+        it('does not return an error on created with PUT', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response({ a: 1 }).created();
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'PUT', path: '/', handler });
+
+            const res = await server.inject({ method: 'PUT', url: '/' });
+            expect(res.result).to.equal({ a: 1 });
+            expect(res.statusCode).to.equal(201);
+        });
+
+        it('does not return an error on created with PATCH', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response({ a: 1 }).created();
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'PATCH', path: '/', handler });
+
+            const res = await server.inject({ method: 'PATCH', url: '/' });
+            expect(res.result).to.equal({ a: 1 });
+            expect(res.statusCode).to.equal(201);
+        });
+    });
+
+    describe('state()', () => {
+
+        it('returns an error on bad cookie', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('text').state(';sid', 'abcdefg123456');
+            };
+
+            const server = Hapi.server({ debug: false });
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.result).to.exist();
+            expect(res.statusCode).to.equal(500);
+            expect(res.result.message).to.equal('An internal server error occurred');
+            expect(res.headers['set-cookie']).to.not.exist();
+        });
+    });
+
+    describe('unstate()', () => {
+
+        it('allows options', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response().unstate('session', { path: '/unset', isSecure: true });
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(204);
+            expect(res.headers['set-cookie']).to.equal(['session=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=Strict; Path=/unset']);
+        });
+    });
+
+    describe('vary()', () => {
+
+        it('sets Vary header with single value', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('ok').vary('x');
+            };
+
+            const server = Hapi.server({ compression: { minBytes: 1 } });
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.result).to.equal('ok');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers.vary).to.equal('x,accept-encoding');
+        });
+
+        it('sets Vary header with multiple values', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('ok').vary('x').vary('y');
+            };
+
+            const server = Hapi.server({ compression: { minBytes: 1 } });
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.result).to.equal('ok');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers.vary).to.equal('x,y,accept-encoding');
+        });
+
+        it('sets Vary header with *', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('ok').vary('*');
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.result).to.equal('ok');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers.vary).to.equal('*');
+        });
+
+        it('leaves Vary header with * on additional values', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('ok').vary('*').vary('x');
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.result).to.equal('ok');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers.vary).to.equal('*');
+        });
+
+        it('drops other Vary header values when set to *', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('ok').vary('x').vary('*');
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.result).to.equal('ok');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers.vary).to.equal('*');
+        });
+
+        it('sets Vary header with multiple similar and identical values', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('ok').vary('x').vary('xyz').vary('xy').vary('x');
+            };
+
+            const server = Hapi.server({ compression: { minBytes: 1 } });
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.result).to.equal('ok');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers.vary).to.equal('x,xyz,xy,accept-encoding');
+        });
+    });
+
+    describe('etag()', () => {
+
+        it('sets etag', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('ok').etag('abc');
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers.etag).to.equal('"abc"');
+        });
+
+        it('sets weak etag', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('ok').etag('abc', { weak: true });
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers.etag).to.equal('W/"abc"');
+        });
+
+        it('ignores varyEtag when etag header is removed', async () => {
+
+            const handler = (request, h) => {
+
+                const response = h.response('ok').etag('abc').vary('x');
+                delete response.headers.etag;
+                return response;
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers.etag).to.not.exist();
+        });
+
+        it('leaves etag header when varyEtag is false', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('ok').etag('abc', { vary: false }).vary('x');
+            };
+
+            const server = Hapi.server({ compression: { minBytes: 1 } });
+            server.route({ method: 'GET', path: '/', handler });
+            const res1 = await server.inject('/');
+            expect(res1.statusCode).to.equal(200);
+            expect(res1.headers.etag).to.equal('"abc"');
+
+            const res2 = await server.inject({ url: '/', headers: { 'if-none-match': '"abc-gzip"', 'accept-encoding': 'gzip' } });
+            expect(res2.statusCode).to.equal(200);
+            expect(res2.headers.etag).to.equal('"abc"');
+        });
+
+        it('applies varyEtag when returning 304 due to if-modified-since match', async () => {
+
+            const mdate = new Date().toUTCString();
+
+            const handler = (request, h) => {
+
+                return h.response('ok').etag('abc').header('last-modified', mdate);
+            };
+
+            const server = Hapi.server({ compression: { minBytes: 1 } });
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject({ url: '/', headers: { 'if-modified-since': mdate, 'accept-encoding': 'gzip' } });
+            expect(res.statusCode).to.equal(304);
+            expect(res.headers.etag).to.equal('"abc-gzip"');
+        });
+    });
+
+    describe('passThrough()', () => {
+
+        it('passes stream headers and code through', async () => {
+
+            const TestStream = class extends Stream.Readable {
+
+                constructor() {
+
+                    super();
+                    this.statusCode = 299;
+                    this.headers = { xcustom: 'some value', 'content-type': 'something/special' };
                 }
-                this.isDone = true;
 
-                this.push('x');
-                this.push(null);
-            };
+                _read(size) {
 
-            var handler = function (request, reply) {
+                    if (this.isDone) {
+                        return;
+                    }
 
-                return reply(new TestStream());
-            };
+                    this.isDone = true;
 
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
-
-            server.inject('/', function (res) {
-
-                expect(res.result).to.equal('x');
-                expect(res.statusCode).to.equal(299);
-                expect(res.headers.xcustom).to.equal('some value');
-                done();
-            });
-        });
-
-        it('excludes stream headers and code when passThrough is false', function (done) {
-
-            var TestStream = function () {
-
-                Stream.Readable.call(this);
-                this.statusCode = 299;
-                this.headers = { xcustom: 'some value' };
-            };
-
-            Hoek.inherits(TestStream, Stream.Readable);
-
-            TestStream.prototype._read = function (size) {
-
-                if (this.isDone) {
-                    return;
+                    this.push('x');
+                    this.push(null);
                 }
-                this.isDone = true;
-
-                this.push('x');
-                this.push(null);
             };
 
-            var handler = function (request, reply) {
+            const handler = (request) => {
 
-                return reply(new TestStream()).passThrough(false);
+                return new TestStream();
             };
 
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
 
-            server.inject('/', function (res) {
-
-                expect(res.result).to.equal('x');
-                expect(res.statusCode).to.equal(200);
-                expect(res.headers.xcustom).to.not.exist();
-                done();
-            });
+            const res = await server.inject('/');
+            expect(res.result).to.equal('x');
+            expect(res.statusCode).to.equal(299);
+            expect(res.headers.xcustom).to.equal('some value');
+            expect(res.headers['content-type']).to.equal('something/special');
         });
 
-        it('ignores stream headers when empty', function (done) {
+        it('excludes connection header and connection options', async () => {
 
-            var TestStream = function () {
+            const upstreamConnectionHeader = 'x-test, x-test-also';
 
-                Stream.Readable.call(this);
-                this.statusCode = 299;
-                this.headers = {};
-            };
+            const TestStream = class extends Stream.Readable {
 
-            Hoek.inherits(TestStream, Stream.Readable);
+                constructor() {
 
-            TestStream.prototype._read = function (size) {
-
-                if (this.isDone) {
-                    return;
+                    super();
+                    this.statusCode = 200;
+                    this.headers = {
+                        connection: upstreamConnectionHeader,
+                        'x-test': 'something',
+                        'x-test-also': 'also'
+                    };
                 }
-                this.isDone = true;
 
-                this.push('x');
-                this.push(null);
-            };
+                _read(size) {
 
-            var handler = function (request, reply) {
+                    if (this.isDone) {
+                        return;
+                    }
 
-                return reply(new TestStream());
-            };
+                    this.isDone = true;
 
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
-
-            server.inject('/', function (res) {
-
-                expect(res.result).to.equal('x');
-                expect(res.statusCode).to.equal(299);
-                expect(res.headers.xcustom).to.not.exist();
-                done();
-            });
-        });
-
-        it('retains local headers with stream headers pass-through', function (done) {
-
-            var TestStream = function () {
-
-                Stream.Readable.call(this);
-                this.headers = { xcustom: 'some value', 'set-cookie': 'a=1' };
-            };
-
-            Hoek.inherits(TestStream, Stream.Readable);
-
-            TestStream.prototype._read = function (size) {
-
-                if (this.isDone) {
-                    return;
+                    this.push('x');
+                    this.push(null);
                 }
-                this.isDone = true;
-
-                this.push('x');
-                this.push(null);
             };
 
-            var handler = function (request, reply) {
+            const handler = (request) => {
 
-                return reply(new TestStream()).header('xcustom', 'other value').state('b', '2');
+                return new TestStream();
             };
 
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
+            const server = new Hapi.Server();
+            server.route({ method: 'GET', path: '/', handler });
 
-            server.inject('/', function (res) {
+            const res = await server.inject('/');
+            expect(res.result).to.equal('x');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers.connection).to.not.equal(upstreamConnectionHeader);
+            expect(res.headers['x-test']).to.not.exist();
+            expect(res.headers['x-test-also']).to.not.exist();
+        });
 
-                expect(res.result).to.equal('x');
-                expect(res.headers.xcustom).to.equal('other value');
-                expect(res.headers['set-cookie']).to.deep.equal(['a=1', 'b=2']);
-                done();
-            });
+        it('excludes stream headers and code when passThrough is false', async () => {
+
+            const TestStream = class extends Stream.Readable {
+
+                constructor() {
+
+                    super();
+                    this.statusCode = 299;
+                    this.headers = { xcustom: 'some value' };
+                }
+
+                _read(size) {
+
+                    if (this.isDone) {
+                        return;
+                    }
+
+                    this.isDone = true;
+
+                    this.push('x');
+                    this.push(null);
+                }
+            };
+
+            const handler = (request, h) => {
+
+                return h.response(new TestStream()).passThrough(false);
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.result).to.equal('x');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers.xcustom).to.not.exist();
+        });
+
+        it('ignores stream headers when empty', async () => {
+
+            const TestStream = class extends Stream.Readable {
+
+                constructor() {
+
+                    super();
+                    this.statusCode = 299;
+                    this.headers = {};
+                }
+
+                _read(size) {
+
+                    if (this.isDone) {
+                        return;
+                    }
+
+                    this.isDone = true;
+
+                    this.push('x');
+                    this.push(null);
+                }
+            };
+
+            const handler = (request) => {
+
+                return new TestStream();
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.result).to.equal('x');
+            expect(res.statusCode).to.equal(299);
+            expect(res.headers.xcustom).to.not.exist();
+        });
+
+        it('retains local headers with stream headers pass-through', async () => {
+
+            const TestStream = class extends Stream.Readable {
+
+                constructor() {
+
+                    super();
+                    this.headers = { xcustom: 'some value', 'set-cookie': 'a=1' };
+                }
+
+                _read(size) {
+
+                    if (this.isDone) {
+                        return;
+                    }
+
+                    this.isDone = true;
+
+                    this.push('x');
+                    this.push(null);
+                }
+            };
+
+            const handler = (request, h) => {
+
+                return h.response(new TestStream()).header('xcustom', 'other value').state('b', '2');
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.result).to.equal('x');
+            expect(res.headers.xcustom).to.equal('other value');
+            expect(res.headers['set-cookie']).to.equal(['a=1', 'b=2; Secure; HttpOnly; SameSite=Strict']);
         });
     });
 
-    describe('replacer()', function () {
+    describe('replacer()', () => {
 
-        it('errors when called on wrong type', function (done) {
+        it('errors when called on wrong type', async () => {
 
-            var handler = function (request, reply) {
+            const handler = (request, h) => {
 
-                return reply('x').replacer(['x']);
+                return h.response('x').replacer(['x']);
             };
 
-            var server = new Hapi.Server({ debug: false });
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(500);
-                done();
-            });
+            const server = Hapi.server({ debug: false });
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(500);
         });
     });
 
-    describe('spaces()', function () {
+    describe('compressed()', () => {
 
-        it('errors when called on wrong type', function (done) {
+        it('errors on missing encoding', async () => {
 
-            var handler = function (request, reply) {
+            const handler = (request, h) => {
 
-                return reply('x').spaces(2);
+                return h.response('x').compressed();
             };
 
-            var server = new Hapi.Server({ debug: false });
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-            server.inject('/', function (res) {
+            const server = Hapi.server({ debug: false });
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(500);
+        });
 
-                expect(res.statusCode).to.equal(500);
-                done();
-            });
+        it('errors on invalid encoding', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('x').compressed(123);
+            };
+
+            const server = Hapi.server({ debug: false });
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(500);
         });
     });
 
-    describe('suffix()', function () {
+    describe('spaces()', () => {
 
-        it('errors when called on wrong type', function (done) {
+        it('errors when called on wrong type', async () => {
 
-            var handler = function (request, reply) {
+            const handler = (request, h) => {
 
-                return reply('x').suffix('x');
+                return h.response('x').spaces(2);
             };
 
-            var server = new Hapi.Server({ debug: false });
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(500);
-                done();
-            });
+            const server = Hapi.server({ debug: false });
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(500);
         });
     });
 
-    describe('type()', function () {
+    describe('suffix()', () => {
 
-        it('returns a file in the response with the correct headers using custom mime type', function (done) {
+        it('errors when called on wrong type', async () => {
 
-            var server = new Hapi.Server();
-            server.connection({ routes: { files: { relativeTo: __dirname } } });
-            var handler = function (request, reply) {
+            const handler = (request, h) => {
 
-                return reply.file('../LICENSE').type('application/example');
+                return h.response('x').suffix('x');
             };
 
-            server.route({ method: 'GET', path: '/file', handler: handler });
-
-            server.inject('/file', function (res) {
-
-                expect(res.headers['content-type']).to.equal('application/example');
-                done();
-            });
+            const server = Hapi.server({ debug: false });
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(500);
         });
     });
 
-    describe('redirect()', function () {
+    describe('escape()', () => {
 
-        it('returns a redirection reply', function (done) {
+        it('returns 200 when called with true', async () => {
 
-            var handler = function (request, reply) {
+            const handler = (request, h) => {
 
-                return reply('Please wait while we send your elsewhere').redirect('/example');
+                return h.response({ x: 'x' }).escape(true);
             };
 
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
-
-            server.inject('http://example.org/', function (res) {
-
-                expect(res.result).to.exist();
-                expect(res.headers.location).to.equal('/example');
-                expect(res.statusCode).to.equal(302);
-                done();
-            });
+            const server = Hapi.server({ debug: false });
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(200);
         });
 
-        it('returns a redirection reply using verbose call', function (done) {
+        it('errors when called on wrong type', async () => {
 
-            var handler = function (request, reply) {
+            const handler = (request, h) => {
 
-                return reply('We moved!').redirect().location('/examplex');
+                return h.response('x').escape('x');
             };
 
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
-
-            server.inject('/', function (res) {
-
-                expect(res.result).to.exist();
-                expect(res.result).to.equal('We moved!');
-                expect(res.headers.location).to.equal('/examplex');
-                expect(res.statusCode).to.equal(302);
-                done();
-            });
-        });
-
-        it('returns a 301 redirection reply', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply().redirect('example').permanent().rewritable();
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
-
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(301);
-                done();
-            });
-        });
-
-        it('returns a 302 redirection reply', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply().redirect('example').temporary().rewritable();
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
-
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(302);
-                done();
-            });
-        });
-
-        it('returns a 307 redirection reply', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply().redirect('example').temporary().rewritable(false);
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
-
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(307);
-                done();
-            });
-        });
-
-        it('returns a 308 redirection reply', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply().redirect('example').permanent().rewritable(false);
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
-
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(308);
-                done();
-            });
-        });
-
-        it('returns a 301 redirection reply (reveresed methods)', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply().redirect('example').rewritable().permanent();
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
-
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(301);
-                done();
-            });
-        });
-
-        it('returns a 302 redirection reply (reveresed methods)', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply().redirect('example').rewritable().temporary();
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
-
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(302);
-                done();
-            });
-        });
-
-        it('returns a 307 redirection reply (reveresed methods)', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply().redirect('example').rewritable(false).temporary();
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
-
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(307);
-                done();
-            });
-        });
-
-        it('returns a 308 redirection reply (reveresed methods)', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply().redirect('example').rewritable(false).permanent();
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
-
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(308);
-                done();
-            });
-        });
-
-        it('returns a 302 redirection reply (flip flop)', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply().redirect('example').permanent().temporary();
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
-
-            server.inject('/', function (res) {
-
-                expect(res.statusCode).to.equal(302);
-                done();
-            });
+            const server = Hapi.server({ debug: false });
+            server.route({ method: 'GET', path: '/', handler });
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(500);
         });
     });
 
-    describe('_prepare()', function () {
+    describe('type()', () => {
 
-        it('handles promises that resolve', function (done) {
+        it('returns a file in the response with the correct headers using custom mime type', async () => {
 
-            var handler = function (request, reply) {
+            const server = Hapi.server({ routes: { files: { relativeTo: Path.join(__dirname, '../') } } });
+            await server.register(Inert);
+            const handler = (request, h) => {
 
-                return reply(Bluebird.resolve('promised response')).code(201);
+                return h.file('./LICENSE.md').type('application/example');
             };
 
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
+            server.route({ method: 'GET', path: '/file', handler });
 
-            server.inject('/', function (res) {
-
-                expect(res.result).to.equal('promised response');
-                expect(res.statusCode).to.equal(201);
-                done();
-            });
-        });
-
-        it('handles promises that resolve (object)', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply(Bluebird.resolve({ status: 'ok' })).code(201);
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-
-            server.inject('/', function (res) {
-
-                expect(res.result.status).to.equal('ok');
-                expect(res.statusCode).to.equal(201);
-                done();
-            });
-        });
-
-        it('handles promises that resolve (response object)', function (done) {
-
-            var handler = function (request, reply) {
-
-                return reply(Bluebird.resolve(request.generateResponse({ status: 'ok' }).code(201)));
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-
-            server.inject('/', function (res) {
-
-                expect(res.result.status).to.equal('ok');
-                expect(res.statusCode).to.equal(201);
-                done();
-            });
-        });
-
-        it('handles promises that reject', function (done) {
-
-            var handler = function (request, reply) {
-
-                var promise = Bluebird.reject(Boom.forbidden('this is not allowed!'));
-                promise.catch(Hoek.ignore);
-
-                return reply(promise).code(299);            // Code ignored
-            };
-
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
-
-            server.inject('/', function (res) {
-
-                expect(res.result.message).to.equal('this is not allowed!');
-                expect(res.statusCode).to.equal(403);
-                done();
-            });
+            const res = await server.inject('/file');
+            expect(res.headers['content-type']).to.equal('application/example');
         });
     });
 
-    describe('_marshal()', function () {
+    describe('charset()', () => {
 
-        it('emits request-error when view file for handler not found', function (done) {
+        it('sets charset with default type', async () => {
 
-            var server = new Hapi.Server({ debug: false });
-            server.connection();
+            const handler = (request, h) => {
+
+                return h.response('text').charset('abc');
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers['content-type']).to.equal('text/html; charset=abc');
+        });
+
+        it('sets charset with default type in onPreResponse', async () => {
+
+            const onPreResponse = (request, h) => {
+
+                request.response.charset('abc');
+                return h.continue;
+            };
+
+            const server = Hapi.server();
+            server.ext('onPreResponse', onPreResponse);
+
+            server.route({ method: 'GET', path: '/', handler: () => 'text' });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers['content-type']).to.equal('text/html; charset=abc');
+        });
+
+        it('sets type inside marshal', async () => {
+
+            const handler = (request) => {
+
+                const marshal = (response) => {
+
+                    if (!response.headers['content-type']) {
+                        response.type('text/html');
+                    }
+
+                    return response.source.value;
+                };
+
+                return request.generateResponse({ value: 'text' }, { variety: 'test', marshal });
+            };
+
+            const onPreResponse = (request, h) => {
+
+                request.response.charset('abc');
+                return h.continue;
+            };
+
+            const server = Hapi.server();
+            server.ext('onPreResponse', onPreResponse);
+
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(200);
+            expect(res.headers['content-type']).to.equal('text/html; charset=abc');
+        });
+    });
+
+    describe('redirect()', () => {
+
+        it('returns a redirection response', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('Please wait while we send your elsewhere').redirect('/example');
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('http://example.org/');
+            expect(res.result).to.exist();
+            expect(res.headers.location).to.equal('/example');
+            expect(res.statusCode).to.equal(302);
+        });
+
+        it('returns a redirection response using verbose call', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response('We moved!').redirect().location('/examplex');
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.result).to.exist();
+            expect(res.result).to.equal('We moved!');
+            expect(res.headers.location).to.equal('/examplex');
+            expect(res.statusCode).to.equal(302);
+        });
+
+        it('returns a 301 redirection response', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response().redirect('example').permanent().rewritable();
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(301);
+        });
+
+        it('returns a 302 redirection response', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response().redirect('example').temporary().rewritable();
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(302);
+        });
+
+        it('returns a 307 redirection response', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response().redirect('example').temporary().rewritable(false);
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(307);
+        });
+
+        it('returns a 308 redirection response', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response().redirect('example').permanent().rewritable(false);
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(308);
+        });
+
+        it('returns a 301 redirection response (reversed methods)', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response().redirect('example').rewritable().permanent();
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(301);
+        });
+
+        it('returns a 302 redirection response (reversed methods)', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response().redirect('example').rewritable().temporary();
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(302);
+        });
+
+        it('returns a 307 redirection response (reversed methods)', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response().redirect('example').rewritable(false).temporary();
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(307);
+        });
+
+        it('returns a 308 redirection response (reversed methods)', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response().redirect('example').rewritable(false).permanent();
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(308);
+        });
+
+        it('returns a 302 redirection response (flip flop)', async () => {
+
+            const handler = (request, h) => {
+
+                return h.response().redirect('example').permanent().temporary();
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(302);
+        });
+    });
+
+    describe('_marshal()', () => {
+
+        it('emits request-error when view file for handler not found', async () => {
+
+            const server = Hapi.server({ debug: false });
+            await server.register(Vision);
 
             server.views({
                 engines: { 'html': Handlebars },
                 path: __dirname
             });
 
-            server.once('request-error', function (request, err) {
+            const log = server.events.once({ name: 'request', channels: 'error' });
 
-                expect(err).to.exist();
-                expect(err.message).to.contain('View file not found');
-                done();
-            });
+            server.route({ method: 'GET', path: '/{param}', handler: { view: 'templates/invalid' } });
 
-            server.route({ method: 'GET', path: '/{param}', handler: { view: 'noview' } });
+            const res = await server.inject('/hello');
+            expect(res.statusCode).to.equal(500);
+            expect(res.result).to.exist();
+            expect(res.result.message).to.equal('An internal server error occurred');
 
-            server.inject('/hello', function (res) {
-
-                expect(res.statusCode).to.equal(500);
-                expect(res.result).to.exist();
-                expect(res.result.message).to.equal('An internal server error occurred');
-            });
+            const [, event] = await log;
+            expect(event.error.message).to.contain('The partial x could not be found: The partial x could not be found');
         });
-    });
 
-    describe('_streamify()', function () {
+        it('returns a formatted response (spaces)', async () => {
 
-        it('returns a formatted response', function (done) {
+            const handler = (request) => {
 
-            var handler = function (request, reply) {
-
-                return reply({ a: 1, b: 2 });
+                return { a: 1, b: 2, '<': '&' };
             };
 
-            var server = new Hapi.Server();
-            server.connection({ routes: { json: { replacer: ['a'], space: 4, suffix: '\n' } } });
-            server.route({ method: 'GET', path: '/', handler: handler });
+            const server = Hapi.server({ routes: { json: { space: 4, suffix: '\n', escape: true } } });
+            server.route({ method: 'GET', path: '/', handler });
 
-            server.inject('/', function (res) {
-
-                expect(res.payload).to.equal('{\n    \"a\": 1\n}\n');
-                done();
-            });
+            const res = await server.inject('/');
+            expect(res.payload).to.equal('{\n    \"a\": 1,\n    \"b\": 2,\n    \"\\u003c\": \"\\u0026\"\n}\n');
         });
 
-        it('returns a response with options', function (done) {
+        it('returns a formatted response (replacer and spaces', async () => {
 
-            var handler = function (request, reply) {
+            const handler = (request) => {
 
-                return reply({ a: 1, b: 2 }).type('application/x-test').spaces(2).replacer(['a']).suffix('\n');
+                return { a: 1, b: 2, '<': '&' };
             };
 
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
+            const server = Hapi.server({ routes: { json: { replacer: ['a', '<'], space: 4, suffix: '\n', escape: true } } });
+            server.route({ method: 'GET', path: '/', handler });
 
-            server.inject('/', function (res) {
-
-                expect(res.payload).to.equal('{\n  \"a\": 1\n}\n');
-                expect(res.headers['content-type']).to.equal('application/x-test');
-                done();
-            });
+            const res = await server.inject('/');
+            expect(res.payload).to.equal('{\n    \"a\": 1,\n    \"\\u003c\": \"\\u0026\"\n}\n');
         });
 
-        it('returns a response with options (different order)', function (done) {
+        it('returns a response with options', async () => {
 
-            var handler = function (request, reply) {
+            const handler = (request, h) => {
 
-                return reply({ a: 1, b: 2 }).type('application/x-test').replacer(['a']).suffix('\n').spaces(2);
+                return h.response({ a: 1, b: 2, '<': '&' }).type('application/x-test').spaces(2).replacer(['a']).suffix('\n').escape(false);
             };
 
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
 
-            server.inject('/', function (res) {
-
-                expect(res.payload).to.equal('{\n  \"a\": 1\n}\n');
-                expect(res.headers['content-type']).to.equal('application/x-test');
-                done();
-            });
+            const res = await server.inject('/');
+            expect(res.payload).to.equal('{\n  \"a\": 1\n}\n');
+            expect(res.headers['content-type']).to.equal('application/x-test');
         });
 
-        it('captures object which cannot be stringify', function (done) {
+        it('returns a response with options (different order)', async () => {
 
-            var handler = function (request, reply) {
+            const handler = (request, h) => {
 
-                var obj = {};
+                return h.response({ a: 1, b: 2, '<': '&' }).type('application/x-test').escape(false).replacer(['a']).suffix('\n').spaces(2);
+            };
+
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
+
+            const res = await server.inject('/');
+            expect(res.payload).to.equal('{\n  \"a\": 1\n}\n');
+            expect(res.headers['content-type']).to.equal('application/x-test');
+        });
+
+        it('captures object which cannot be stringify', async () => {
+
+            const handler = (request) => {
+
+                const obj = {};
                 obj.a = obj;
-                return reply(obj);
+                return obj;
             };
 
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', handler: handler });
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
 
-            server.inject('/', function (res) {
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(500);
+        });
 
-                expect(res.statusCode).to.equal(500);
-                done();
-            });
+        it('errors on non-readable stream response', async () => {
+
+            const streamHandler = (request, h) => {
+
+                const stream = new Stream();
+                stream.writable = true;
+
+                return h.response(stream);
+            };
+
+            const writableHandler = (request, h) => {
+
+                const writable = new Stream.Writable();
+                writable._write = function () { };
+
+                return h.response(writable);
+            };
+
+            const server = Hapi.server({ debug: false });
+            server.route({ method: 'GET', path: '/stream', handler: streamHandler });
+            server.route({ method: 'GET', path: '/writable', handler: writableHandler });
+
+            await server.initialize();
+
+            const log1 = server.events.once({ name: 'request', channels: 'error' });
+            const res1 = await server.inject('/stream');
+            expect(res1.statusCode).to.equal(500);
+
+            const [, event1] = await log1;
+            expect(event1.error).to.be.an.error('Cannot reply with a stream-like object that is not an instance of Stream.Readable');
+
+            const log2 = server.events.once({ name: 'request', channels: 'error' });
+            const res2 = await server.inject('/writable');
+            expect(res2.statusCode).to.equal(500);
+
+            const [, event2] = await log2;
+            expect(event2.error).to.be.an.error('Cannot reply with a stream-like object that is not an instance of Stream.Readable');
+        });
+
+        it('errors on an http client stream response', async () => {
+
+            const streamHandler = (request, h) => {
+
+                const req = Http.get(request.server.info.uri);
+                req.abort();
+                return h.response(req);
+            };
+
+            const server = Hapi.server({ debug: false });
+            server.route({ method: 'GET', path: '/stream', handler: streamHandler });
+
+            const log = server.events.once({ name: 'request', channels: 'error' });
+
+            await server.initialize();
+            const res = await server.inject('/stream');
+            expect(res.statusCode).to.equal(500);
+
+            const [, event] = await log;
+            expect(event.error).to.be.an.error('Cannot reply with a stream-like object that is not an instance of Stream.Readable');
+        });
+
+        it('errors on a legacy readable stream response', async () => {
+
+            const streamHandler = () => {
+
+                const stream = new LegacyReadableStream.Readable();
+                stream._read = function (size) {
+
+                    const chunk = new Array(size).join('x');
+
+                    setTimeout(() => {
+
+                        this.push(chunk);
+                    }, 10);
+                };
+
+                return stream;
+            };
+
+            const server = Hapi.server({ debug: false });
+            server.route({ method: 'GET', path: '/stream', handler: streamHandler });
+
+            const log = server.events.once({ name: 'request', channels: 'error' });
+
+            await server.initialize();
+            const res = await server.inject('/stream');
+            expect(res.statusCode).to.equal(500);
+
+            const [, event] = await log;
+            expect(event.error).to.be.an.error('Cannot reply with a stream-like object that is not an instance of Stream.Readable');
+        });
+
+        it('errors on objectMode stream response', async () => {
+
+            const TestStream = class extends Stream.Readable {
+
+                constructor() {
+
+                    super({ objectMode: true });
+                }
+
+                _read(size) {
+
+                    if (this.isDone) {
+                        return;
+                    }
+
+                    this.isDone = true;
+
+                    this.push({ x: 1 });
+                    this.push({ y: 1 });
+                    this.push(null);
+                }
+            };
+
+            const handler = (request, h) => {
+
+                return h.response(new TestStream());
+            };
+
+            const server = Hapi.server({ debug: false });
+            server.route({ method: 'GET', path: '/', handler });
+
+            const log = server.events.once({ name: 'request', channels: 'error' });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(500);
+
+            const [, event] = await log;
+            expect(event.error).to.be.an.error('Cannot reply with stream in object mode');
         });
     });
 
-    describe('_close()', function () {
+    describe('_prepare()', () => {
 
-        it('calls custom close processor', function (done) {
+        it('boomifies response prepare error', async () => {
 
-            var closed = false;
-            var close = function (response) {
+            const server = Hapi.server();
+
+            server.route({
+                method: 'GET',
+                path: '/',
+                handler: (request) => {
+
+                    const prepare = () => {
+
+                        throw new Error('boom');
+                    };
+
+                    return request.generateResponse('nothing', { variety: 'special', marshal: null, prepare, close: null });
+                }
+            });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(500);
+        });
+
+        it('is only called once for returned responses', async () => {
+
+            let calls = 0;
+            const pre = (request, h) => {
+
+                const prepare = (response) => {
+
+                    ++calls;
+                    return response;
+                };
+
+                return request.generateResponse(null, { prepare });
+            };
+
+            const server = Hapi.server();
+            server.route({
+                method: 'GET',
+                path: '/',
+                options: {
+                    pre: [
+                        { method: pre, assign: 'p' }
+                    ],
+                    handler: (request) => request.preResponses.p
+                }
+            });
+
+            const res = await server.inject('/');
+            expect(res.statusCode).to.equal(204);
+            expect(calls).to.equal(1);
+        });
+    });
+
+    describe('_tap()', () => {
+
+        it('peeks into the response stream', async () => {
+
+            const server = Hapi.server();
+
+            let output = '';
+            server.route({
+                method: 'GET',
+                path: '/',
+                handler: (request, h) => {
+
+                    const response = h.response('1234567890');
+
+                    response.events.on('peek', (chunk, encoding) => {
+
+                        output += chunk.toString();
+                    });
+
+                    response.events.once('finish', () => {
+
+                        output += '!';
+                    });
+
+                    return response;
+                }
+            });
+
+            await server.inject('/');
+            expect(output).to.equal('1234567890!');
+        });
+
+        it('peeks into the response stream (finish only)', async () => {
+
+            const server = Hapi.server();
+
+            let output = false;
+            server.route({
+                method: 'GET',
+                path: '/',
+                handler: (request, h) => {
+
+                    const response = h.response('1234567890');
+
+                    response.events.once('finish', () => {
+
+                        output = true;
+                    });
+
+                    return response;
+                }
+            });
+
+            await server.inject('/');
+            expect(output).to.be.true();
+        });
+
+        it('peeks into the response stream (empty)', async () => {
+
+            const server = Hapi.server();
+
+            let output = '';
+            server.route({
+                method: 'GET',
+                path: '/',
+                handler: (request, h) => {
+
+                    const response = h.response(null);
+
+                    response.events.on('peek', (chunk, encoding) => { });
+
+                    response.events.once('finish', () => {
+
+                        output += '!';
+                    });
+
+                    return response;
+                }
+            });
+
+            await server.inject('/');
+            expect(output).to.equal('!');
+        });
+
+        it('peeks into the response stream (empty 304)', async () => {
+
+            const server = Hapi.server();
+
+            let output = '';
+            server.route({
+                method: 'GET',
+                path: '/',
+                handler: (request, h) => {
+
+                    const response = h.response(null).code(304);
+
+                    response.events.on('peek', (chunk, encoding) => { });
+
+                    response.events.once('finish', () => {
+
+                        output += '!';
+                    });
+
+                    return response;
+                }
+            });
+
+            await server.inject('/');
+            expect(output).to.equal('!');
+        });
+    });
+
+    describe('_close()', () => {
+
+        it('calls custom close processor', async () => {
+
+            let closed = false;
+            const close = function (response) {
 
                 closed = true;
             };
 
-            var handler = function (request, reply) {
+            const handler = (request) => {
 
-                return reply(request.generateResponse(null, { close: close }));
+                return request.generateResponse(null, { close });
             };
 
-            var server = new Hapi.Server();
-            server.connection();
-            server.route({ method: 'GET', path: '/', config: { handler: handler } });
+            const server = Hapi.server();
+            server.route({ method: 'GET', path: '/', handler });
 
-            server.inject('/', function (res) {
+            await server.inject('/');
+            expect(closed).to.be.true();
+        });
 
-                expect(closed).to.be.true();
-                done();
+        it('logs custom close processor error', async () => {
+
+            const close = function (response) {
+
+                throw new Error('oops');
+            };
+
+            const handler = (request) => {
+
+                return request.generateResponse(null, { close });
+            };
+
+            const server = Hapi.server();
+            const log = server.events.once('request');
+            server.route({ method: 'GET', path: '/', handler });
+
+            await server.inject('/');
+            const [, event] = await log;
+            expect(event.tags).to.equal(['response', 'cleanup', 'error']);
+            expect(event.error).to.be.an.error('oops');
+        });
+    });
+
+    describe('Peek', () => {
+
+        it('taps into pass-through stream', async () => {
+
+            // Source
+
+            const Source = class extends Stream.Readable {
+
+                constructor(values) {
+
+                    super();
+                    this.data = values;
+                    this.pos = 0;
+                }
+
+                _read(/* size */) {
+
+                    if (this.pos === this.data.length) {
+                        this.push(null);
+                        return;
+                    }
+
+                    this.push(this.data[this.pos++]);
+                }
+            };
+
+            // Target
+
+            const Target = class extends Stream.Writable {
+
+                constructor() {
+
+                    super();
+                    this.data = [];
+                }
+
+                _write(chunk, encoding, callback) {
+
+                    this.data.push(chunk.toString());
+                    return callback();
+                }
+            };
+
+            // Peek
+
+            const emitter = new Events.EventEmitter();
+            const peek = new Response.Peek(emitter);
+
+            const chunks = ['abcd', 'efgh', 'ijkl', 'mnop', 'qrst', 'uvwx'];
+            const source = new Source(chunks);
+            const target = new Target();
+
+            const seen = [];
+            emitter.on('peek', (update) => {
+
+                const chunk = update[0];
+                seen.push(chunk.toString());
             });
+
+            const finish = new Promise((resolve) => {
+
+                emitter.once('finish', () => {
+
+                    expect(seen).to.equal(chunks);
+                    expect(target.data).to.equal(chunks);
+                    resolve();
+                });
+            });
+
+            source.pipe(peek).pipe(target);
+            await finish;
         });
     });
 });

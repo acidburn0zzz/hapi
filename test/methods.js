@@ -1,1100 +1,795 @@
-// Load modules
+'use strict';
 
-var Bluebird = require('bluebird');
-var CatboxMemory = require('catbox-memory');
-var Code = require('code');
-var Hapi = require('..');
-var Lab = require('lab');
-
-
-// Declare internals
-
-var internals = {};
+const Catbox = require('@hapi/catbox');
+const { Engine: CatboxMemory } = require('@hapi/catbox-memory');
+const Code = require('@hapi/code');
+const Hapi = require('..');
+const Hoek = require('@hapi/hoek');
+const Lab = require('@hapi/lab');
 
 
-// Test shortcuts
-
-var lab = exports.lab = Lab.script();
-var describe = lab.describe;
-var it = lab.it;
-var expect = Code.expect;
+const internals = {};
 
 
-describe('Methods', function () {
+const { describe, it } = exports.lab = Lab.script();
+const expect = Code.expect;
 
-    it('registers a method', function (done) {
 
-        var add = function (a, b, next) {
+describe('Methods', () => {
 
-            return next(null, a + b);
-        };
+    it('registers a method', () => {
 
-        var server = new Hapi.Server();
-        server.method('add', add);
-
-        server.methods.add(1, 5, function (err, result) {
-
-            expect(result).to.equal(6);
-            done();
-        });
-    });
-
-    it('registers a method with leading _', function (done) {
-
-        var _add = function (a, b, next) {
-
-            return next(null, a + b);
-        };
-
-        var server = new Hapi.Server();
-        server.method('_add', _add);
-
-        server.methods._add(1, 5, function (err, result) {
-
-            expect(result).to.equal(6);
-            done();
-        });
-    });
-
-    it('registers a method with leading $', function (done) {
-
-        var $add = function (a, b, next) {
-
-            return next(null, a + b);
-        };
-
-        var server = new Hapi.Server();
-        server.method('$add', $add);
-
-        server.methods.$add(1, 5, function (err, result) {
-
-            expect(result).to.equal(6);
-            done();
-        });
-    });
-
-    it('registers a method with _', function (done) {
-
-        var _add = function (a, b, next) {
-
-            return next(null, a + b);
-        };
-
-        var server = new Hapi.Server();
-        server.method('add_._that', _add);
-
-        server.methods.add_._that(1, 5, function (err, result) {
-
-            expect(result).to.equal(6);
-            done();
-        });
-    });
-
-    it('registers a method with $', function (done) {
-
-        var $add = function (a, b, next) {
-
-            return next(null, a + b);
-        };
-
-        var server = new Hapi.Server();
-        server.method('add$.$that', $add);
-
-        server.methods.add$.$that(1, 5, function (err, result) {
-
-            expect(result).to.equal(6);
-            done();
-        });
-    });
-
-    it('registers a method (no callback)', function (done) {
-
-        var add = function (a, b) {
+        const add = function (a, b) {
 
             return a + b;
         };
 
-        var server = new Hapi.Server();
-        server.method('add', add, { callback: false });
+        const server = Hapi.server();
+        server.method('add', add);
 
-        expect(server.methods.add(1, 5)).to.equal(6);
-        done();
+        const result = server.methods.add(1, 5);
+        expect(result).to.equal(6);
     });
 
-    it('registers a method (promise)', function (done) {
+    it('registers a method (object)', () => {
 
-        var addAsync = function (a, b, next) {
+        const add = function (a, b) {
 
-            return next(null, a + b);
+            return a + b;
         };
 
-        var add = Bluebird.promisify(addAsync);
+        const server = Hapi.server();
+        server.method({ name: 'add', method: add });
 
-        var server = new Hapi.Server();
-        server.method('add', add, { callback: false });
-
-        server.methods.add(1, 5).then(function (result) {
-
-            expect(result).to.equal(6);
-            done();
-        });
+        const result = server.methods.add(1, 5);
+        expect(result).to.equal(6);
     });
 
-    it('registers a method with nested name', function (done) {
+    it('registers a method with leading _', () => {
 
-        var add = function (a, b, next) {
+        const _add = function (a, b) {
 
-            return next(null, a + b);
+            return a + b;
         };
 
-        var server = new Hapi.Server();
-        server.connection();
+        const server = Hapi.server();
+        server.method('_add', _add);
+
+        const result = server.methods._add(1, 5);
+        expect(result).to.equal(6);
+    });
+
+    it('registers a method with leading $', () => {
+
+        const $add = function (a, b) {
+
+            return a + b;
+        };
+
+        const server = Hapi.server();
+        server.method('$add', $add);
+
+        const result = server.methods.$add(1, 5);
+        expect(result).to.equal(6);
+    });
+
+    it('registers a method with _', () => {
+
+        const _add = function (a, b) {
+
+            return a + b;
+        };
+
+        const server = Hapi.server();
+        server.method('add_._that', _add);
+
+        const result = server.methods.add_._that(1, 5);
+        expect(result).to.equal(6);
+    });
+
+    it('registers a method with $', () => {
+
+        const $add = function (a, b) {
+
+            return a + b;
+        };
+
+        const server = Hapi.server();
+        server.method('add$.$that', $add);
+
+        const result = server.methods.add$.$that(1, 5);
+        expect(result).to.equal(6);
+    });
+
+    it('registers a method (promise)', async () => {
+
+        const add = function (a, b) {
+
+            return new Promise((resolve) => resolve(a + b));
+        };
+
+        const server = Hapi.server();
+        server.method('add', add);
+
+        const value = await server.methods.add(1, 5);
+        expect(value).to.equal(6);
+    });
+
+    it('registers a method with nested name', () => {
+
+        const add = function (a, b) {
+
+            return a + b;
+        };
+
+        const server = Hapi.server();
         server.method('tools.add', add);
 
-        server.start(function () {
-
-            server.methods.tools.add(1, 5, function (err, result) {
-
-                expect(result).to.equal(6);
-                done();
-            });
-        });
+        const result = server.methods.tools.add(1, 5);
+        expect(result).to.equal(6);
     });
 
-    it('registers a method with bind and callback', function (done) {
+    it('registers two methods with shared nested name', () => {
 
-        var server = new Hapi.Server();
-        server.connection();
+        const add = function (a, b) {
 
-        var context = { name: 'Bob' };
-        server.method('user', function (id, next) {
-
-            return next(null, { id: id, name: this.name });
-        }, { bind: context });
-
-        server.route({
-            method: 'GET',
-            path: '/user/{id}',
-            config: {
-                pre: [
-                    'user(params.id)'
-                ],
-                handler: function (request, reply) {
-
-                    return reply(request.pre.user);
-                }
-            }
-        });
-
-        server.inject('/user/5', function (res) {
-
-            expect(res.result).to.deep.equal({ id: '5', name: 'Bob' });
-            done();
-        });
-    });
-
-    it('registers two methods with shared nested name', function (done) {
-
-        var add = function (a, b, next) {
-
-            return next(null, a + b);
+            return a + b;
         };
 
-        var sub = function (a, b, next) {
+        const sub = function (a, b) {
 
-            return next(null, a - b);
+            return a - b;
         };
 
-        var server = new Hapi.Server();
-        server.connection();
+        const server = Hapi.server();
         server.method('tools.add', add);
         server.method('tools.sub', sub);
 
-        server.start(function () {
-
-            server.methods.tools.add(1, 5, function (err, result) {
-
-                expect(result).to.equal(6);
-                server.methods.tools.sub(1, 5, function (err, result) {
-
-                    expect(result).to.equal(-4);
-                    done();
-                });
-            });
-        });
+        const result1 = server.methods.tools.add(1, 5);
+        expect(result1).to.equal(6);
+        const result2 = server.methods.tools.sub(1, 5);
+        expect(result2).to.equal(-4);
     });
 
-    it('throws when registering a method with nested name twice', function (done) {
+    it('throws when registering a method with nested name twice', () => {
 
-        var add = function (a, b, next) {
+        const server = Hapi.server();
+        server.method('tools.add', Hoek.ignore);
+        expect(() => {
 
-            return next(null, a + b);
-        };
-
-        var server = new Hapi.Server();
-        server.method('tools.add', add);
-        expect(function () {
-
-            server.method('tools.add', add);
-        }).to.throw('Server method function name already exists');
-
-        done();
+            server.method('tools.add', Hoek.ignore);
+        }).to.throw('Server method function name already exists: tools.add');
     });
 
-    it('throws when registering a method with name nested through a function', function (done) {
+    it('throws when registering a method with name nested through a function', () => {
 
-        var add = function (a, b, next) {
+        const server = Hapi.server();
+        server.method('add', Hoek.ignore);
+        expect(() => {
 
-            return next(null, a + b);
-        };
-
-        var server = new Hapi.Server();
-        server.method('add', add);
-        expect(function () {
-
-            server.method('add.another', add);
+            server.method('add.another', Hoek.ignore);
         }).to.throw('Invalid segment another in reach path  add.another');
-
-        done();
     });
 
-    it('calls non cached method multiple times', function (done) {
+    it('calls non cached method multiple times', () => {
 
-        var gen = 0;
-        var method = function (id, next) {
+        let gen = 0;
+        const method = function (id) {
 
-            return next(null, { id: id, gen: gen++ });
+            return { id, gen: gen++ };
         };
 
-        var server = new Hapi.Server();
-        server.connection();
+        const server = Hapi.server();
         server.method('test', method);
 
-        server.start(function () {
+        const result1 = server.methods.test(1);
+        expect(result1.gen).to.equal(0);
 
-            server.methods.test(1, function (err, result) {
-
-                expect(result.gen).to.equal(0);
-
-                server.methods.test(1, function (err, result) {
-
-                    expect(result.gen).to.equal(1);
-                    done();
-                });
-            });
-        });
+        const result2 = server.methods.test(1);
+        expect(result2.gen).to.equal(1);
     });
 
-    it('caches method value', function (done) {
+    it('caches method value', async () => {
 
-        var gen = 0;
-        var method = function (id, next) {
+        let gen = 0;
+        const method = function (id) {
 
-            return next(null, { id: id, gen: gen++ });
+            return { id, gen: gen++ };
         };
 
-        var server = new Hapi.Server();
-        server.connection();
-        server.method('test', method, { cache: { expiresIn: 1000 } });
+        const server = Hapi.server();
+        server.method('test', method, { cache: { expiresIn: 1000, generateTimeout: 10 } });
 
-        server.start(function () {
+        await server.initialize();
 
-            server.methods.test(1, function (err, result) {
+        const result1 = await server.methods.test(1);
+        expect(result1.gen).to.equal(0);
 
-                expect(err).to.not.exist();
-                expect(result.gen).to.equal(0);
-
-                server.methods.test(1, function (err, result) {
-
-                    expect(err).to.not.exist();
-                    expect(result.gen).to.equal(0);
-                    done();
-                });
-            });
-        });
+        const result2 = await server.methods.test(1);
+        expect(result2.gen).to.equal(0);
     });
 
-    it('caches method value (no callback)', function (done) {
+    it('emits a cache policy event on cached methods with default cache provision', async () => {
 
-        var gen = 0;
-        var method = function (id) {
+        const method = function (id) {
 
-            return { id: id, gen: gen++ };
+            return { id };
         };
 
-        var server = new Hapi.Server();
-        server.connection();
-        server.method('test', method, { cache: { expiresIn: 1000 }, callback: false });
+        const server = Hapi.server();
+        const cachePolicyEvent = server.events.once('cachePolicy');
 
-        server.start(function () {
+        server.method('test', method, { cache: { expiresIn: 1000, generateTimeout: 10 } });
 
-            server.methods.test(1, function (err, result) {
-
-                expect(err).to.not.exist();
-                expect(result.gen).to.equal(0);
-
-                server.methods.test(1, function (err, result) {
-
-                    expect(err).to.not.exist();
-                    expect(result.gen).to.equal(0);
-                    done();
-                });
-            });
-        });
+        const [policy, cacheName, segment] = await cachePolicyEvent;
+        expect(policy).to.be.instanceOf(Catbox.Policy);
+        expect(cacheName).to.equal(undefined);
+        expect(segment).to.equal('#test');
     });
 
-    it('caches method value (promise)', function (done) {
+    it('emits a cache policy event on cached methods with named cache provision', async () => {
 
-        var gen = 0;
-        var methodAsync = function (id, next) {
+        const method = function (id) {
 
-            if (id === 2) {
-                return next(new Error('boom'));
-            }
-
-            return next(null, { id: id, gen: gen++ });
+            return { id };
         };
 
-        var method = Bluebird.promisify(methodAsync);
+        const server = Hapi.server();
+        await server.cache.provision({ provider: CatboxMemory, name: 'named' });
+        const cachePolicyEvent = server.events.once('cachePolicy');
 
-        var server = new Hapi.Server();
-        server.connection();
-        server.method('test', method, { cache: { expiresIn: 1000 }, callback: false });
+        server.method('test', method, { cache: { cache: 'named', expiresIn: 1000, generateTimeout: 10 } });
 
-        server.start(function () {
-
-            server.methods.test(1, function (err, result) {
-
-                expect(err).to.not.exist();
-                expect(result.gen).to.equal(0);
-
-                server.methods.test(1, function (err, result) {
-
-                    expect(err).to.not.exist();
-                    expect(result.gen).to.equal(0);
-
-                    server.methods.test(2, function (err, result) {
-
-                        expect(err).to.exist();
-                        expect(err.message).to.equal('boom');
-                        done();
-                    });
-                });
-            });
-        });
+        const [policy, cacheName, segment] = await cachePolicyEvent;
+        expect(policy).to.be.instanceOf(Catbox.Policy);
+        expect(cacheName).to.equal('named');
+        expect(segment).to.equal('#test');
     });
 
-    it('reuses cached method value with custom key function', function (done) {
+    it('caches method value (async)', async () => {
 
-        var gen = 0;
-        var method = function (id, next) {
+        let gen = 0;
+        const method = async function (id) {
 
-            return next(null, { id: id, gen: gen++ });
+            await Hoek.wait(1);
+            return { id, gen: gen++ };
         };
 
-        var server = new Hapi.Server();
-        server.connection();
+        const server = Hapi.server();
+        server.method('test', method, { cache: { expiresIn: 1000, generateTimeout: 10 } });
 
-        var generateKey = function (id) {
+        await server.initialize();
+
+        const result1 = await server.methods.test(1);
+        expect(result1.gen).to.equal(0);
+
+        const result2 = await server.methods.test(1);
+        expect(result2.gen).to.equal(0);
+    });
+
+    it('caches method value (promise)', async () => {
+
+        let gen = 0;
+        const method = function (id) {
+
+            return new Promise((resolve, reject) => {
+
+                if (id === 2) {
+                    return reject(new Error('boom'));
+                }
+
+                return resolve({ id, gen: gen++ });
+            });
+        };
+
+        const server = Hapi.server();
+        server.method('test', method, { cache: { expiresIn: 1000, generateTimeout: 10 } });
+
+        await server.initialize();
+
+        const result1 = await server.methods.test(1);
+        expect(result1.gen).to.equal(0);
+
+        const result2 = await server.methods.test(1);
+        expect(result2.gen).to.equal(0);
+
+        await expect(server.methods.test(2)).to.reject('boom');
+    });
+
+    it('caches method value (decorated)', async () => {
+
+        let gen = 0;
+        const method = function (id) {
+
+            return { id, gen: gen++ };
+        };
+
+        const server = Hapi.server();
+        server.method('test', method, { cache: { expiresIn: 1000, generateTimeout: 10, getDecoratedValue: true } });
+
+        await server.initialize();
+
+        const { value: result1 } = await server.methods.test(1);
+        expect(result1.gen).to.equal(0);
+
+        const { value: result2 } = await server.methods.test(1);
+        expect(result2.gen).to.equal(0);
+    });
+
+    it('reuses cached method value with custom key function', async () => {
+
+        let gen = 0;
+        const method = function (id) {
+
+            return { id, gen: gen++ };
+        };
+
+        const server = Hapi.server();
+
+        const generateKey = function (id) {
 
             return '' + (id + 1);
         };
 
-        server.method('test', method, { cache: { expiresIn: 1000 }, generateKey: generateKey });
+        server.method('test', method, { cache: { expiresIn: 1000, generateTimeout: 10 }, generateKey });
 
-        server.start(function () {
+        await server.initialize();
 
-            server.methods.test(1, function (err, result) {
+        const result1 = await server.methods.test(1);
+        expect(result1.gen).to.equal(0);
 
-                expect(result.gen).to.equal(0);
-
-                server.methods.test(1, function (err, result) {
-
-                    expect(result.gen).to.equal(0);
-                    done();
-                });
-            });
-        });
+        const result2 = await server.methods.test(1);
+        expect(result2.gen).to.equal(0);
     });
 
-    it('errors when custom key function return null', function (done) {
+    it('errors when custom key function return null', async () => {
 
-        var method = function (id, next) {
+        const method = function (id) {
 
-            return next(null, { id: id });
+            return { id };
         };
 
-        var server = new Hapi.Server();
-        server.connection();
+        const server = Hapi.server();
 
-        var generateKey = function (id) {
+        const generateKey = function (id) {
 
             return null;
         };
 
-        server.method('test', method, { cache: { expiresIn: 1000 }, generateKey: generateKey });
+        server.method('test', method, { cache: { expiresIn: 1000, generateTimeout: 10 }, generateKey });
 
-        server.start(function () {
-
-            server.methods.test(1, function (err, result) {
-
-                expect(err).to.exist();
-                expect(err.message).to.equal('Invalid method key when invoking: test');
-                done();
-            });
-        });
+        await server.initialize();
+        await expect(server.methods.test(1)).to.reject('Invalid method key when invoking: test');
     });
 
-    it('does not cache when custom key function returns a non-string', function (done) {
+    it('does not cache when custom key function returns a non-string', async () => {
 
-        var method = function (id, next) {
+        const method = function (id) {
 
-            return next(null, { id: id });
+            return { id };
         };
 
-        var server = new Hapi.Server();
-        server.connection();
+        const server = Hapi.server();
 
-        var generateKey = function (id) {
+        const generateKey = function (id) {
 
             return 123;
         };
 
-        server.method('test', method, { cache: { expiresIn: 1000 }, generateKey: generateKey });
+        server.method('test', method, { cache: { expiresIn: 1000, generateTimeout: 10 }, generateKey });
 
-        server.start(function () {
-
-            server.methods.test(1, function (err, result) {
-
-                expect(err).to.exist();
-                expect(err.message).to.equal('Invalid method key when invoking: test');
-                done();
-            });
-        });
+        await server.initialize();
+        await expect(server.methods.test(1)).to.reject('Invalid method key when invoking: test');
     });
 
-    it('does not cache value when ttl is 0', function (done) {
+    it('does not cache value when ttl is 0', async () => {
 
-        var gen = 0;
-        var method = function (id, next) {
+        let gen = 0;
+        const method = function (id, flags) {
 
-            return next(null, { id: id, gen: gen++ }, 0);
+            flags.ttl = 0;
+            return { id, gen: gen++ };
         };
 
-        var server = new Hapi.Server();
-        server.connection();
-        server.method('test', method, { cache: { expiresIn: 1000 } });
+        const server = Hapi.server();
+        server.method('test', method, { cache: { expiresIn: 1000, generateTimeout: 10 } });
 
-        server.start(function () {
+        await server.initialize();
 
-            server.methods.test(1, function (err, result) {
+        const result1 = await server.methods.test(1);
+        expect(result1.gen).to.equal(0);
 
-                expect(result.gen).to.equal(0);
-
-                server.methods.test(1, function (err, result) {
-
-                    expect(result.gen).to.equal(1);
-                    done();
-                });
-            });
-        });
+        const result2 = await server.methods.test(1);
+        expect(result2.gen).to.equal(1);
     });
 
-    it('generates new value after cache drop', function (done) {
+    it('generates new value after cache drop', async () => {
 
-        var gen = 0;
-        var method = function (id, next) {
+        let gen = 0;
+        const method = function (id) {
 
-            return next(null, { id: id, gen: gen++ });
+            return { id, gen: gen++ };
         };
 
-        var server = new Hapi.Server();
-        server.connection();
-        server.method('dropTest', method, { cache: { expiresIn: 1000 } });
+        const server = Hapi.server();
+        server.method('dropTest', method, { cache: { expiresIn: 1000, generateTimeout: 10 } });
 
-        server.start(function () {
+        await server.initialize();
 
-            server.methods.dropTest(2, function (err, result) {
-
-                expect(result.gen).to.equal(0);
-                server.methods.dropTest.cache.drop(2, function (err) {
-
-                    expect(err).to.not.exist();
-
-                    server.methods.dropTest(2, function (err, result) {
-
-                        expect(result.gen).to.equal(1);
-                        done();
-                    });
-                });
-            });
-        });
+        const result1 = await server.methods.dropTest(2);
+        expect(result1.gen).to.equal(0);
+        await server.methods.dropTest.cache.drop(2);
+        const result2 = await server.methods.dropTest(2);
+        expect(result2.gen).to.equal(1);
     });
 
-    it('errors on invalid drop key', function (done) {
+    it('errors on invalid drop key', async () => {
 
-        var gen = 0;
-        var method = function (id, next) {
+        let gen = 0;
+        const method = function (id) {
 
-            return next(null, { id: id, gen: gen++ });
+            return { id, gen: gen++ };
         };
 
-        var server = new Hapi.Server();
-        server.connection();
-        server.method('dropErrTest', method, { cache: { expiresIn: 1000 } });
+        const server = Hapi.server();
+        server.method('dropErrTest', method, { cache: { expiresIn: 1000, generateTimeout: 10 } });
 
-        server.start(function () {
+        await server.initialize();
 
-            server.methods.dropErrTest.cache.drop(function () { }, function (err) {
-
-                expect(err).to.exist();
-                done();
-            });
-        });
+        const invalid = () => { };
+        await expect(server.methods.dropErrTest.cache.drop(invalid)).to.reject();
     });
 
-    it('throws an error when name is not a string', function (done) {
+    it('reports cache stats for each method', async () => {
 
-        expect(function () {
+        const method = function (id) {
 
-            var server = new Hapi.Server();
-            server.method(0, function () { });
+            return { id };
+        };
+
+        const server = Hapi.server();
+        server.method('test', method, { cache: { generateTimeout: 10 } });
+        server.method('test2', method, { cache: { generateTimeout: 10 } });
+
+        await server.initialize();
+
+        server.methods.test(1);
+        expect(server.methods.test.cache.stats.gets).to.equal(1);
+        expect(server.methods.test2.cache.stats.gets).to.equal(0);
+    });
+
+    it('throws an error when name is not a string', () => {
+
+        expect(() => {
+
+            const server = Hapi.server();
+            server.method(0, () => { });
         }).to.throw('name must be a string');
-        done();
     });
 
-    it('throws an error when name is invalid', function (done) {
+    it('throws an error when name is invalid', () => {
 
-        expect(function () {
+        expect(() => {
 
-            var server = new Hapi.Server();
-            server.method('0', function () { });
+            const server = Hapi.server();
+            server.method('0', () => { });
         }).to.throw('Invalid name: 0');
 
-        expect(function () {
+        expect(() => {
 
-            var server = new Hapi.Server();
-            server.method('a..', function () { });
+            const server = Hapi.server();
+            server.method('a..', () => { });
         }).to.throw('Invalid name: a..');
 
-        expect(function () {
+        expect(() => {
 
-            var server = new Hapi.Server();
-            server.method('a.0', function () { });
+            const server = Hapi.server();
+            server.method('a.0', () => { });
         }).to.throw('Invalid name: a.0');
 
-        expect(function () {
+        expect(() => {
 
-            var server = new Hapi.Server();
-            server.method('.a', function () { });
+            const server = Hapi.server();
+            server.method('.a', () => { });
         }).to.throw('Invalid name: .a');
-
-        done();
     });
 
-    it('throws an error when method is not a function', function (done) {
+    it('throws an error when method is not a function', () => {
 
-        expect(function () {
+        expect(() => {
 
-            var server = new Hapi.Server();
+            const server = Hapi.server();
             server.method('user', 'function');
         }).to.throw('method must be a function');
-        done();
     });
 
-    it('throws an error when options is not an object', function (done) {
+    it('throws an error when options is not an object', () => {
 
-        expect(function () {
+        expect(() => {
 
-            var server = new Hapi.Server();
-            server.method('user', function () { }, 'options');
+            const server = Hapi.server();
+            server.method('user', () => { }, 'options');
         }).to.throw(/Invalid method options \(user\)/);
-        done();
     });
 
-    it('throws an error when options.generateKey is not a function', function (done) {
+    it('throws an error when options.generateKey is not a function', () => {
 
-        expect(function () {
+        expect(() => {
 
-            var server = new Hapi.Server();
-            server.method('user', function () { }, { generateKey: 'function' });
+            const server = Hapi.server();
+            server.method('user', () => { }, { generateKey: 'function' });
         }).to.throw(/Invalid method options \(user\)/);
-        done();
     });
 
-    it('throws an error when options.cache is not valid', function (done) {
+    it('throws an error when options.cache is not valid', () => {
 
-        expect(function () {
+        expect(() => {
 
-            var server = new Hapi.Server({ cache: CatboxMemory });
-            server.method('user', function () { }, { cache: { x: 'y' } });
+            const server = Hapi.server({ cache: CatboxMemory });
+            server.method('user', () => { }, { cache: { x: 'y', generateTimeout: 10 } });
         }).to.throw(/Invalid cache policy configuration/);
-        done();
     });
 
-    it('returns a valid result when calling a method without using the cache', function (done) {
+    it('throws an error when generateTimeout is not present', () => {
 
-        var server = new Hapi.Server();
+        const server = Hapi.server();
+        expect(() => {
 
-        var method = function (id, next) {
+            server.method('test', () => { }, { cache: {} });
+        }).to.throw('Method caching requires a timeout value in generateTimeout: test');
+    });
 
-            return next(null, { id: id });
+    it('allows generateTimeout to be false', () => {
+
+        const server = Hapi.server();
+        expect(() => {
+
+            server.method('test', () => { }, { cache: { generateTimeout: false } });
+        }).to.not.throw();
+    });
+
+    it('returns timeout when method taking too long using the cache', async () => {
+
+        const server = Hapi.server({ cache: CatboxMemory });
+
+        let gen = 0;
+        const method = async function (id) {
+
+            await Hoek.wait(50);
+            return { id, gen: ++gen };
         };
 
-        server.method('user', method);
-        server.methods.user(4, function (err, result) {
+        server.method('user', method, { cache: { expiresIn: 2000, generateTimeout: 30 } });
 
-            expect(result.id).to.equal(4);
-            done();
-        });
+        await server.initialize();
+
+        const id = Math.random();
+        const err = await expect(server.methods.user(id)).to.reject();
+        expect(err.output.statusCode).to.equal(503);
+
+        await Hoek.wait(30);
+
+        const result2 = await server.methods.user(id);
+        expect(result2.id).to.equal(id);
+        expect(result2.gen).to.equal(1);
     });
 
-    it('returns a valid result when calling a method when using the cache', function (done) {
+    it('supports empty key method', async () => {
 
-        var server = new Hapi.Server();
-        server.connection();
-        server.start(function () {
+        const server = Hapi.server({ cache: CatboxMemory });
 
-            var method = function (id, str, next) {
+        let gen = 0;
+        const terms = 'I agree to give my house';
+        const method = function () {
 
-                return next(null, { id: id, str: str });
-            };
-
-            server.method('user', method, { cache: { expiresIn: 1000 } });
-            server.methods.user(4, 'something', function (err, result) {
-
-                expect(result.id).to.equal(4);
-                expect(result.str).to.equal('something');
-                done();
-            });
-        });
-    });
-
-    it('returns an error result when calling a method that returns an error', function (done) {
-
-        var server = new Hapi.Server();
-
-        var method = function (id, next) {
-
-            return next(new Error());
+            return { gen: gen++, terms };
         };
 
-        server.method('user', method);
-        server.methods.user(4, function (err, result) {
+        server.method('tos', method, { cache: { expiresIn: 2000, generateTimeout: 10 } });
 
-            expect(err).to.exist();
-            done();
-        });
+        await server.initialize();
+
+        const result1 = await server.methods.tos();
+        expect(result1.terms).to.equal(terms);
+        expect(result1.gen).to.equal(0);
+
+        const result2 = await server.methods.tos();
+        expect(result2.terms).to.equal(terms);
+        expect(result2.gen).to.equal(0);
     });
 
-    it('returns a different result when calling a method without using the cache', function (done) {
+    it('returns valid results when calling a method (with different keys) using the cache', async () => {
 
-        var server = new Hapi.Server();
+        const server = Hapi.server({ cache: CatboxMemory });
+        let gen = 0;
+        const method = function (id) {
 
-        var gen = 0;
-        var method = function (id, next) {
-
-            return next(null, { id: id, gen: ++gen });
+            return { id, gen: ++gen };
         };
 
-        server.method('user', method);
-        server.methods.user(4, function (err, result1) {
+        server.method('user', method, { cache: { expiresIn: 2000, generateTimeout: 10 } });
+        await server.initialize();
 
-            expect(result1.id).to.equal(4);
-            expect(result1.gen).to.equal(1);
-            server.methods.user(4, function (err, result2) {
+        const id1 = Math.random();
+        const result1 = await server.methods.user(id1);
+        expect(result1.id).to.equal(id1);
+        expect(result1.gen).to.equal(1);
 
-                expect(result2.id).to.equal(4);
-                expect(result2.gen).to.equal(2);
-                done();
-            });
-        });
+        const id2 = Math.random();
+        const result2 = await server.methods.user(id2);
+        expect(result2.id).to.equal(id2);
+        expect(result2.gen).to.equal(2);
     });
 
-    it('returns a valid result when calling a method using the cache', function (done) {
+    it('errors when key generation fails', async () => {
 
-        var server = new Hapi.Server({ cache: CatboxMemory });
-        server.connection();
+        const server = Hapi.server({ cache: CatboxMemory });
 
-        var gen = 0;
-        var method = function (id, next) {
+        const method = function (id) {
 
-            return next(null, { id: id, gen: ++gen });
+            return { id };
         };
 
-        server.method('user', method, { cache: { expiresIn: 2000 } });
+        server.method([{ name: 'user', method, options: { cache: { expiresIn: 2000, generateTimeout: 10 } } }]);
 
-        server.start(function () {
+        await server.initialize();
 
-            var id = Math.random();
-            server.methods.user(id, function (err, result1) {
+        const result1 = await server.methods.user(1);
+        expect(result1.id).to.equal(1);
 
-                expect(result1.id).to.equal(id);
-                expect(result1.gen).to.equal(1);
-                server.methods.user(id, function (err, result2) {
-
-                    expect(result2.id).to.equal(id);
-                    expect(result2.gen).to.equal(1);
-                    done();
-                });
-            });
-        });
+        const invalid = function () { };
+        await expect(server.methods.user(invalid)).to.reject('Invalid method key when invoking: user');
     });
 
-    it('returns timeout when method taking too long using the cache', function (done) {
+    it('sets method bind without cache', () => {
 
-        var server = new Hapi.Server({ cache: CatboxMemory });
-        server.connection();
+        const method = function (id) {
 
-        var gen = 0;
-        var method = function (id, next) {
-
-            setTimeout(function () {
-
-                return next(null, { id: id, gen: ++gen });
-            }, 5);
+            return { id, gen: this.gen++ };
         };
 
-        server.method('user', method, { cache: { expiresIn: 2000, generateTimeout: 3 } });
-
-        server.start(function () {
-
-            var id = Math.random();
-            server.methods.user(id, function (err, result1) {
-
-                expect(err.output.statusCode).to.equal(503);
-
-                setTimeout(function () {
-
-                    server.methods.user(id, function (err, result2) {
-
-                        expect(result2.id).to.equal(id);
-                        expect(result2.gen).to.equal(1);
-                        done();
-                    });
-                }, 3);
-            });
-        });
-    });
-
-    it('supports empty key method', function (done) {
-
-        var server = new Hapi.Server({ cache: CatboxMemory });
-        server.connection();
-
-        var gen = 0;
-        var terms = 'I agree to give my house';
-        var method = function (next) {
-
-            return next(null, { gen: gen++, terms: terms });
-        };
-
-        server.method('tos', method, { cache: { expiresIn: 2000 } });
-
-        server.start(function () {
-
-            server.methods.tos(function (err, result1) {
-
-                expect(result1.terms).to.equal(terms);
-                expect(result1.gen).to.equal(0);
-                server.methods.tos(function (err, result2) {
-
-                    expect(result2.terms).to.equal(terms);
-                    expect(result2.gen).to.equal(0);
-                    done();
-                });
-            });
-        });
-    });
-
-    it('returns valid results when calling a method (with different keys) using the cache', function (done) {
-
-        var server = new Hapi.Server({ cache: CatboxMemory });
-        server.connection();
-        var gen = 0;
-        var method = function (id, next) {
-
-            return next(null, { id: id, gen: ++gen });
-        };
-
-        server.method('user', method, { cache: { expiresIn: 2000 } });
-        server.start(function () {
-
-            var id1 = Math.random();
-            server.methods.user(id1, function (err, result1) {
-
-                expect(result1.id).to.equal(id1);
-                expect(result1.gen).to.equal(1);
-                var id2 = Math.random();
-                server.methods.user(id2, function (err, result2) {
-
-                    expect(result2.id).to.equal(id2);
-                    expect(result2.gen).to.equal(2);
-                    done();
-                });
-            });
-        });
-    });
-
-    it('errors when key generation fails', function (done) {
-
-        var server = new Hapi.Server({ cache: CatboxMemory });
-        server.connection();
-
-        var method = function (id, next) {
-
-            return next(null, { id: id });
-        };
-
-        server.method([{ name: 'user', method: method, options: { cache: { expiresIn: 2000 } } }]);
-
-        server.start(function () {
-
-            server.methods.user(1, function (err, result1) {
-
-                expect(result1.id).to.equal(1);
-
-                server.methods.user(function () { }, function (err, result2) {
-
-                    expect(err).to.exist();
-                    expect(err.message).to.equal('Invalid method key when invoking: user');
-                    done();
-                });
-            });
-        });
-    });
-
-    it('sets method bind without cache', function (done) {
-
-        var method = function (id, next) {
-
-            return next(null, { id: id, gen: this.gen++ });
-        };
-
-        var server = new Hapi.Server();
-        server.connection();
+        const server = Hapi.server();
         server.method('test', method, { bind: { gen: 7 } });
 
-        server.start(function () {
+        const result1 = server.methods.test(1);
+        expect(result1.gen).to.equal(7);
 
-            server.methods.test(1, function (err, result) {
-
-                expect(result.gen).to.equal(7);
-
-                server.methods.test(1, function (err, result) {
-
-                    expect(result.gen).to.equal(8);
-                    done();
-                });
-            });
-        });
+        const result2 = server.methods.test(1);
+        expect(result2.gen).to.equal(8);
     });
 
-    it('sets method bind with cache', function (done) {
+    it('sets method bind with cache', async () => {
 
-        var method = function (id, next) {
+        const method = function (id) {
 
-            return next(null, { id: id, gen: this.gen++ });
+            return { id, gen: this.gen++ };
         };
 
-        var server = new Hapi.Server();
-        server.connection();
-        server.method('test', method, { bind: { gen: 7 }, cache: { expiresIn: 1000 } });
+        const server = Hapi.server();
+        server.method('test', method, { bind: { gen: 7 }, cache: { expiresIn: 1000, generateTimeout: 10 } });
 
-        server.start(function () {
+        await server.initialize();
 
-            server.methods.test(1, function (err, result) {
+        const result1 = await server.methods.test(1);
+        expect(result1.gen).to.equal(7);
 
-                expect(result.gen).to.equal(7);
-
-                server.methods.test(1, function (err, result) {
-
-                    expect(result.gen).to.equal(7);
-                    done();
-                });
-            });
-        });
+        const result2 = await server.methods.test(1);
+        expect(result2.gen).to.equal(7);
     });
 
-    it('shallow copies bind config', function (done) {
+    it('shallow copies bind config', async () => {
 
-        var bind = { gen: 7 };
-        var method = function (id, next) {
+        const bind = { gen: 7 };
+        const method = function (id) {
 
-            return next(null, { id: id, gen: this.gen++, bound: (this === bind) });
+            return { id, gen: this.gen++, bound: this === bind };
         };
 
-        var server = new Hapi.Server();
-        server.connection();
-        server.method('test', method, { bind: bind, cache: { expiresIn: 1000 } });
+        const server = Hapi.server();
+        server.method('test', method, { bind, cache: { expiresIn: 1000, generateTimeout: 10 } });
 
-        server.start(function () {
+        await server.initialize();
 
-            server.methods.test(1, function (err, result) {
+        const result1 = await server.methods.test(1);
+        expect(result1.gen).to.equal(7);
+        expect(result1.bound).to.equal(true);
 
-                expect(result.gen).to.equal(7);
-                expect(result.bound).to.equal(true);
-
-                server.methods.test(1, function (err, result) {
-
-                    expect(result.gen).to.equal(7);
-                    done();
-                });
-            });
-        });
+        const result2 = await server.methods.test(1);
+        expect(result2.gen).to.equal(7);
     });
 
-    describe('_add()', function () {
+    describe('_add()', () => {
 
-        it('normalizes no callback into callback (direct)', function (done) {
+        it('handles sync method', () => {
 
-            var add = function (a, b) {
+            const add = function (a, b) {
 
                 return a + b;
             };
 
-            var server = new Hapi.Server();
-            server.method('add', add, { callback: false });
-            var result = server.methods.add(1, 5);
+            const server = Hapi.server();
+            server.method('add', add);
+            const result = server.methods.add(1, 5);
             expect(result).to.equal(6);
-            done();
         });
 
-        it('normalizes no callback into callback (direct error)', function (done) {
+        it('handles sync method (direct error)', () => {
 
-            var add = function (a, b) {
+            const add = function (a, b) {
 
                 return new Error('boom');
             };
 
-            var server = new Hapi.Server();
-            server.method('add', add, { callback: false });
-            var result = server.methods.add(1, 5);
+            const server = Hapi.server();
+            server.method('add', add);
+            const result = server.methods.add(1, 5);
             expect(result).to.be.instanceof(Error);
             expect(result.message).to.equal('boom');
-            done();
         });
 
-        it('normalizes no callback into callback (direct throw)', function (done) {
+        it('handles sync method (direct throw)', () => {
 
-            var add = function (a, b) {
+            const add = function (a, b) {
 
                 throw new Error('boom');
             };
 
-            var server = new Hapi.Server();
-            server.method('add', add, { callback: false });
-            expect(function () {
+            const server = Hapi.server();
+            server.method('add', add);
+            expect(() => {
 
                 server.methods.add(1, 5);
             }).to.throw('boom');
-            done();
         });
 
-        it('normalizes no callback into callback (normalized)', function (done) {
+        it('throws an error if unknown keys are present when making a server method using an object', () => {
 
-            var add = function (a, b) {
+            const fn = function () { };
+            const server = Hapi.server();
 
-                return a + b;
-            };
+            expect(() => {
 
-            var server = new Hapi.Server();
-            server.method('add', add, { callback: false });
-
-            server._methods._normalized.add(1, 5, function (err, result) {
-
-                expect(result).to.equal(6);
-                done();
-            });
-        });
-
-        it('normalizes no callback into callback (normalized error)', function (done) {
-
-            var add = function (a, b) {
-
-                return new Error('boom');
-            };
-
-            var server = new Hapi.Server();
-            server.method('add', add, { callback: false });
-
-            server._methods._normalized.add(1, 5, function (err, result) {
-
-                expect(err).to.exist();
-                expect(err.message).to.equal('boom');
-                done();
-            });
-        });
-
-        it('normalizes no callback into callback (normalized throw)', function (done) {
-
-            var add = function (a, b) {
-
-                throw new Error('boom');
-            };
-
-            var server = new Hapi.Server();
-            server.method('add', add, { callback: false });
-
-            server._methods._normalized.add(1, 5, function (err, result) {
-
-                expect(err).to.exist();
-                expect(err.message).to.equal('boom');
-                done();
-            });
+                server.method({
+                    name: 'fn',
+                    method: fn,
+                    cache: {}
+                });
+            }).to.throw(/^Invalid methodObject options/);
         });
     });
 
-    it('normalizes no callback into callback (cached)', function (done) {
+    describe('generateKey()', () => {
 
-        var add = function (a, b) {
+        it('handles string argument type', async () => {
 
-            return a + b;
-        };
+            const method = (id) => id;
+            const server = Hapi.server();
+            server.method('test', method, { cache: { expiresIn: 1000, generateTimeout: 10 } });
 
-        var server = new Hapi.Server();
-        server.method('add', add, { cache: { expiresIn: 10 }, callback: false });
-
-        server._methods._normalized.add(1, 5, function (err, result) {
-
-            expect(result).to.equal(6);
-            done();
+            await server.initialize();
+            const value = await server.methods.test('x');
+            expect(value).to.equal('x');
         });
-    });
 
-    it('normalizes no callback into callback (cached error)', function (done) {
+        it('handles multiple arguments', async () => {
 
-        var add = function (a, b) {
+            const method = (a, b, c) => a + b + c;
+            const server = Hapi.server();
+            server.method('test', method, { cache: { expiresIn: 1000, generateTimeout: 10 } });
 
-            return new Error('boom');
-        };
-
-        var server = new Hapi.Server();
-        server.method('add', add, { cache: { expiresIn: 10 }, callback: false });
-
-        server._methods._normalized.add(1, 5, function (err, result) {
-
-            expect(err).to.exist();
-            expect(err.message).to.equal('boom');
-            done();
+            await server.initialize();
+            const value = await server.methods.test('a', 'b', 'c');
+            expect(value).to.equal('abc');
         });
-    });
 
-    it('normalizes no callback into callback (cached throw)', function (done) {
+        it('errors on invalid argument type', async () => {
 
-        var add = function (a, b) {
+            const method = (id) => id;
+            const server = Hapi.server();
+            server.method('test', method, { cache: { expiresIn: 1000, generateTimeout: 10 } });
 
-            throw new Error('boom');
-        };
-
-        var server = new Hapi.Server();
-        server.method('add', add, { cache: { expiresIn: 10 }, callback: false });
-
-        server._methods._normalized.add(1, 5, function (err, result) {
-
-            expect(err).to.exist();
-            expect(err.message).to.equal('boom');
-            done();
+            await server.initialize();
+            await expect(server.methods.test({})).to.reject('Invalid method key when invoking: test');
         });
     });
 });
